@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8"> 
+    <title>AGV 控制面板</title>
+    <style>
+        .button {
+            margin: 5px 10px;
+            padding: 15px;
+            font-size: 16px;
+        }
+        .button-row {
+            text-align: center; /* 將按鈕居中 */
+            margin-bottom: 20px; /* 每排按鈕之間的間距 */
+        }
+        .status {
+            margin: 20px;
+            padding: 20px;
+            border: 2px solid #ddd;
+            text-align: center;
+            color: red;
+        }
+        .status h2, .status p {
+            font-size: 25px;
+        }
+    </style>
+</head>
+<body>
+    <h1>AGV 控制面板</h1>
+
+    <!-- 功能按鈕 -->
+    <div class="button-row">
+        <button class="button" onclick="sendCommand('charge')">AGV充電</button>
+        <button class="button" onclick="sendCommand('c1_recieve')">C4取貨</button>
+        <button class="button" onclick="sendCommand('c1_replenish')">C4補棧板</button>
+    </div>
+
+    <div class="button-row">
+        <button class="button" onclick="sendCommand('c2_replenish')">C3取貨</button>
+        <button class="button" onclick="sendCommand('new_replenish')">C3補棧板</button>
+<!--        <button class="button" onclick="sendCommand('pause')">暫停 AGV</button>
+        <button class="button" onclick="sendCommand('resume')">恢復 AGV</button> -->
+    </div>
+
+    <!-- 狀態顯示 -->
+    <div class="status">
+        <h2>AGV 狀態</h2>
+        <p><strong>電量：</strong><span id="battery">...</span></p>
+        <p><strong>當前位置：</strong><span id="location">...</span></p>
+        <p><strong>當前任務：</strong><span id="task">...</span></p>
+        <p><strong>狀態：</strong><span id="status">...</span></p>
+    </div>
+    <script>
+        // 發送命令到 Flask 後端
+        function sendCommand(command) {
+            let url = '';
+            switch (command) {
+                case 'charge':
+                    url = '/charge';
+                    break;
+                case 'c1_recieve':
+                    url = '/c1_recieve';
+                    break;
+                case 'c2_recieve':
+                    url = '/c2_recieve';
+                    break;
+                case 'c1_replenish':
+                    url = '/c1_replenish';
+                    break;
+                case 'c2_replenish':
+                    url = '/c2_replenish';
+                    break;
+                case 'new_replenish':
+                    url = '/new_replenish';
+                    break;
+                case 'pause':
+                    url = '/pause';  // 確保這個路徑在 Flask 中存在
+                    break;
+                case 'resume':
+                    url = '/resume';  // 確保這個路徑在 Flask 中存在
+                    break;
+                default:
+                    return; 
+            }        
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log("禁用按鈕:", data);
+                // 禁用所有按钮
+                disableAllButtons();
+                //queryTasks();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                enableAllButtons();
+            });
+        }
+    
+        function disableAllButtons() {
+            document.querySelectorAll('.button').forEach(button => {
+                button.disabled = true;
+            });
+        }
+    
+        function enableAllButtons() {
+            document.querySelectorAll('.button').forEach(button => {
+                button.disabled = false;
+            });
+        }
+        
+        function queryTasks() {
+            fetch('http://192.168.2.91:8080//order/queryAll', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+        	body: JSON.stringify({ pageNumber: 1, pageSize: 1 })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.code == 0 && data.data && data.data.list && data.data.list.length > 0) {
+                    let orderState = data.data.list[0].orderState;
+                    if (orderState === 3 || orderState === 4 || orderState === 5 || orderState === 6 || orderState === 7 || orderState === 8) {
+                        enableAllButtons(); // 如果任務狀態為 3, 4, 5, 6, 7 或 8，啟用按鈕
+                    } else {
+                        console.log("任務存在，保持按鈕禁用");
+                    }
+                } else {
+                    enableAllButtons(); // 如果沒有任務，啟用按鈕
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                enableAllButtons(); // 在發生錯誤的情況下也啟用按鈕
+            });
+        }
+        
+    
+        function getAgvStateDescription(state) {
+            switch (state) {
+                case -1: return '休息執行中';
+                case 0: return '離線';
+                case 1: return '等待';
+                case 2: return '運行';
+                case 3: return '動作執行中';
+                case 4: return '低功耗';
+                case 5: return '暫停';
+                case 6: return '手動模式';
+                case 7: return '完成中';
+                case 8: return '充電中';
+                case 9: return '故障';
+                case 10: return '緊急暫停';
+                case 11: return '異常';
+                default: return '未知狀態';
+            }
+        }
+            
+        // 定期更新 AGV 狀態
+        function updateAGVStatus() {
+            fetch('/agv_status')
+            .then(response => response.json())
+            .then(data => {
+                // 更新 AGV 狀態信息
+                document.getElementById('battery').textContent = data[0].battery + '%';
+                document.getElementById('location').textContent = '節點ID: ' + data[0].nodeId;
+                document.getElementById('task').textContent = data[0].task;
+                document.getElementById('status').textContent = getAgvStateDescription(data[0].agvState);
+                // 檢查車子是否處於完成狀態
+
+        
+                // 檢查是否需要自動發送去充電的命令
+                if (data[0].agvState === -1 && data[0].battery < 50) {
+                    sendCommand('charge'); // 觸發充電命令
+                    // 在這種情況下不應啟用按鈕
+                } else {
+                    // 如果AGV不在自動充電的條件下，則根據狀態啟用按鈕
+                    if (isInitialStateFetched) {
+                        enableButtonsBasedOnState(data[0].agvState);
+                    } else {
+                        isInitialStateFetched = true;
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                isInitialStateFetched = true;
+            });
+        }    
+        // 設置定時器定期更新狀態
+        setInterval(updateAGVStatus, 1000);
+        setInterval(queryTasks, 1500);
+    </script>
+</body>
+</html>
